@@ -11,6 +11,10 @@ from buildutils.zmq.configure import Configure as ConfigureZmq
 from buildutils.czmq.configure import Configure as ConfigureCzmq
 from buildutils.zyre.configure import Configure as ConfigureZyre
 from ctypes import *
+from os.path import join as pjoin
+from os import listdir
+from os.path import isfile, join
+import shutil
 
 from pprint import pprint
 
@@ -112,6 +116,74 @@ class BuildPyCommand(setuptools.command.build_py.build_py):
     self.run_command('build_ext')
     setuptools.command.build_py.build_py.run(self)
 
+
+class CleanCommand(Command):
+    """Custom distutils command to clean the .so and .pyc files."""
+    user_options = [('all', 'a',
+                     "remove all build output, not just temporary by-products")
+                    ]
+
+    boolean_options = ['all']
+
+    def initialize_options(self):
+        self.all = None
+
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        _clean_me = []
+        _clean_trees = []
+
+        for d in ('build', 'dist', 'czmq', 'zyre'):
+            if os.path.exists(d):
+                _clean_trees.append(d)
+
+        for root, dirs, files in os.walk('bundled'):
+            for d in dirs:
+                _clean_trees.append(pjoin(root, d))
+
+        if self.all:
+            for f in listdir('bundled'):
+                if isfile(join('bundled', f)):
+                    _clean_me.append(join('bundled', f))
+
+        for root, dirs, files in os.walk('buildutils'):
+            if any(root.startswith(pre) for pre in _clean_trees):
+                continue
+
+            for f in files:
+                if os.path.splitext(f)[-1] == '.pyc':
+                    _clean_me.append(pjoin(root, f))
+
+            if '__pycache__' in dirs:
+                _clean_trees.append(pjoin(root, '__pycache__'))
+
+        for root, dirs, files in os.walk('test'):
+            if any(root.startswith(pre) for pre in _clean_trees):
+                continue
+
+            for f in files:
+                if os.path.splitext(f)[-1] == '.pyc':
+                    _clean_me.append(pjoin(root, f))
+
+            if '__pycache__' in dirs:
+                _clean_trees.append(pjoin(root, '__pycache__'))
+
+        for clean_me in _clean_me:
+            print("removing %s" % clean_me)
+            try:
+                os.unlink(clean_me)
+            except Exception as e:
+                print(e, file=sys.stderr)
+
+        for clean_tree in _clean_trees:
+            print("removing %s/" % clean_tree)
+            try:
+                shutil.rmtree(clean_tree)
+            except Exception as e:
+                print(e, file=sys.stderr)
+
 cmdclass = versioneer.get_cmdclass()
 cmdclass = {
     'configure': ConfigureZyre,
@@ -119,6 +191,7 @@ cmdclass = {
     'configure_czmq': ConfigureCzmq,
     'build_ext': zbuild_ext,
     'build_py': BuildPyCommand,
+    'clean': CleanCommand
 }
 
 packages = ['pyzyre', 'czmq', 'zyre']
